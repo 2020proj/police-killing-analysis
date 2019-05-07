@@ -1,0 +1,996 @@
+---
+title: "Final Project"
+output:
+  pdf_document: default
+  html_document:
+    keep_md: TRUE
+    highlight: pygments
+    theme: cerulean
+  word_document: default
+---
+
+----
+
+**NAME: Ryan Hedges, Yueyi Sun, Zejiang Shen **  
+
+----
+```{r,echo=FALSE}
+library(maps)
+library(dplyr)
+library(mice)
+library(VIM)
+library(pander)
+library(lattice)
+library(mltools)
+library(car)
+library(plyr)
+library(ggthemes)
+library(ggplot2)
+library(gridExtra)
+library(ggcorrplot)
+library(GGally)
+library(corrplot)
+library(Hmisc)
+library(openintro)
+knitr::opts_chunk$set(fig.width=12, fig.height=8) 
+```
+
+# Introduction
+
+# Exploratory Data Analysis
+## Census dataset 
+```{r,echo = FALSE}
+census = read.csv('acs2015_census_tract_data.csv', header = TRUE)
+```
+
+```{r,echo=FALSE}
+head(census)
+```
+
+```{r}
+summary(census)
+```
+
+Convert type of variables
+```{r,echo=FALSE}
+census$State = factor(census$State)
+census$County = factor(census$County)
+```
+
+### Missing value
+There are 1274 observations with missing values in the census dataset. As the proportion of missing data is small, I will simply impute mean values for all the missingness. Missng random at state level, We will aggregate in state level.
+
+```{r,echo=FALSE}
+missingdata= census[!complete.cases(census),]
+```
+
+```{r}
+census$Complete = complete.cases(census)
+missing_percent = census %>% dplyr::group_by(State) %>% dplyr::summarise(total_count = n(),na_count = sum(!Complete), percent = sum(!Complete)/n())
+```
+
+```{r}
+us_states <- map_data("state")
+missing_percent$State = tolower(missing_percent$State)
+temp = names(us_states)
+temp[5] = "State"
+names(us_states) = temp
+us_states_missing <- left_join(us_states, missing_percent, by = "State")
+
+p1 <- ggplot(data = us_states_missing,
+             mapping = aes(x = long, y = lat, group = group, fill = percent)) + geom_polygon(color = "gray90", size = 0.1) +
+coord_map(projection = "albers", lat0 = 39, lat1 = 45) + 
+scale_fill_gradient(low = "white", high = "#FF0000") +
+theme_map()  +
+ggtitle("The proportion of missingness in each state")
+p1
+```
+```{r}
+missing_percent[with(missing_percent, order(percent,decreasing = TRUE)),]
+```
+
+```{r}
+census_aggr = aggr(census,col=mdc(1:2), numbers=TRUE, sortVars=TRUE, cex.axis=.7, gap=3, ylab=c("Proportion of missingness","Missingness Pattern"))
+```
+
+
+```{r}
+for(i in 1:ncol(census)){
+  census[is.na(census[,i]), i] <- mean(census[,i], na.rm = TRUE)
+}
+```
+
+```{r}
+sum(!complete.cases(census))
+```
+
+### Calculate the population
+```{r,echo=FALSE}
+attach(census)
+census$Hispanic_pop = TotalPop*Hispanic/100
+census$White_pop = TotalPop*White/100
+census$Black_pop = TotalPop*Black/100
+census$Native_pop = TotalPop*Native/100
+census$Asian_pop = TotalPop*Asian/100
+census$Pacific_pop = TotalPop*Pacific/100
+census$Tot_Income = TotalPop*IncomePerCap
+census$Poverty_pop = TotalPop*Poverty/100
+census$ChildPoverty_pop = TotalPop*ChildPoverty/100
+census$Professional_pop = TotalPop*Professional/100
+census$Service_pop = TotalPop*Service/100
+census$Office_pop = TotalPop*Office/100
+census$Construction_pop = TotalPop*Construction/100
+census$Production_pop = TotalPop*Production/100
+census$Drive_pop = TotalPop*Drive/100
+census$Carpool_pop = TotalPop*Carpool/100
+census$WFH_pop = TotalPop*WorkAtHome/100
+census$TotalCommute = TotalPop*MeanCommute
+census$PrivateWork_pop = TotalPop*PrivateWork/100
+census$PublicWork_pop = TotalPop*PublicWork/100
+census$SelfEmployed_pop = TotalPop*SelfEmployed/100
+census$Unemployment_pop = TotalPop*Unemployment/100
+
+summed_census <- census %>%
+dplyr::group_by(State) %>%
+dplyr::summarise(sum(TotalPop), sum(Men), sum(Women), sum(Citizen),
+          sum(Employed), sum(Hispanic_pop), sum(White_pop), sum(Black_pop), sum(Native_pop), sum(Asian_pop),
+          sum(Pacific_pop), sum(Tot_Income), sum(ChildPoverty_pop), sum(Poverty_pop), sum(Professional_pop), sum(Service_pop), sum(Office_pop),
+          sum(Construction_pop), sum(Production_pop), sum(Drive_pop), sum(Carpool_pop), sum(WFH_pop), sum(TotalCommute),
+          sum(PrivateWork_pop), sum(PublicWork_pop), sum(SelfEmployed_pop), sum(Unemployment_pop))
+
+detach(census)
+```
+
+### Calculate the proportion group by state
+```{r}
+attach(summed_census)
+aggregated_data <- data.frame(State) %>% group_by(State)
+aggregated_data$TotalPop <- summed_census$"sum(TotalPop)"
+aggregated_data$Men <- summed_census$"sum(Men)" / summed_census$"sum(TotalPop)"
+aggregated_data$Women <- summed_census$"sum(Women)" / summed_census$"sum(TotalPop)"
+aggregated_data$Hispanic <- summed_census$"sum(Hispanic_pop)" / summed_census$"sum(TotalPop)"
+aggregated_data$White <- summed_census$"sum(White_pop)" / summed_census$"sum(TotalPop)"
+aggregated_data$Black <- summed_census$"sum(Black_pop)" / summed_census$"sum(TotalPop)"
+aggregated_data$Native <- summed_census$"sum(Native_pop)" / summed_census$"sum(TotalPop)"
+aggregated_data$Asian <- summed_census$"sum(Asian_pop)" / summed_census$"sum(TotalPop)"
+aggregated_data$Pacific <- summed_census$"sum(Pacific_pop)" / summed_census$"sum(TotalPop)"
+aggregated_data$Citizen <- summed_census$"sum(Citizen)" / summed_census$"sum(TotalPop)"
+aggregated_data$IncomePerCap <- summed_census$"sum(Tot_Income)" / summed_census$"sum(TotalPop)"
+aggregated_data$Pov <- summed_census$"sum(Poverty_pop)" / summed_census$"sum(TotalPop)"
+aggregated_data$ChildPov <- summed_census$"sum(ChildPoverty_pop)" / summed_census$"sum(TotalPop)"
+aggregated_data$Professional <- summed_census$"sum(Professional_pop)" / summed_census$"sum(TotalPop)"
+aggregated_data$Service <- summed_census$"sum(Service_pop)" / summed_census$"sum(TotalPop)"
+aggregated_data$Office <- summed_census$"sum(Office_pop)" / summed_census$"sum(TotalPop)"
+aggregated_data$Construction <- summed_census$"sum(Construction_pop)" / summed_census$"sum(TotalPop)"
+aggregated_data$Production <- summed_census$"sum(Production_pop)" / summed_census$"sum(TotalPop)"
+aggregated_data$Drive <- summed_census$"sum(Drive_pop)" / summed_census$"sum(TotalPop)"
+aggregated_data$Carpool <- summed_census$"sum(Carpool_pop)" / summed_census$"sum(TotalPop)"
+aggregated_data$Employed <- summed_census$"sum(Employed)" / summed_census$"sum(TotalPop)"
+aggregated_data$WFH <- summed_census$"sum(WFH_pop)" / summed_census$"sum(TotalPop)"
+aggregated_data$AVG_Commute <- summed_census$"sum(TotalCommute)" / summed_census$"sum(TotalPop)"
+aggregated_data$Private_work <- summed_census$"sum(PrivateWork_pop)" / summed_census$"sum(TotalPop)"
+aggregated_data$Public_work <- summed_census$"sum(PublicWork_pop)" / summed_census$"sum(TotalPop)"
+aggregated_data$SelfEmployed <- summed_census$"sum(SelfEmployed_pop)" / summed_census$"sum(TotalPop)"
+aggregated_data$Unemployment <- summed_census$"sum(Unemployment_pop)" / summed_census$"sum(TotalPop)"
+
+aggregated_data <- aggregated_data %>% ungroup(State)
+
+## Min-max normalization
+aggregated_data$TotalPop <- (aggregated_data$TotalPop - min(aggregated_data$TotalPop))/ (max(aggregated_data$TotalPop)-min(aggregated_data$TotalPop))
+
+detach(summed_census)
+```
+
+```{r}
+names(aggregated_data)
+```
+
+
+### Map Plots
+```{r}
+attach(aggregated_data)
+library(maps)
+us_states <- map_data("state")
+head(us_states)
+```
+```{r}
+aggregated_data$State = tolower(State)
+temp = names(us_states)
+temp[5] = "State"
+names(us_states) = temp
+us_states_data <- left_join(us_states, aggregated_data, by = "State")
+head(us_states_data)
+```
+
+```{r,echo=FALSE}
+p1 <- ggplot(data = us_states_data,
+             mapping = aes(x = long, y = lat, group = group, fill = Men)) + geom_polygon(color = "gray90", size = 0.1) +
+coord_map(projection = "albers", lat0 = 39, lat1 = 45) + 
+scale_fill_gradient(low = "white", high = "#FF0000") +
+theme_map() 
+
+p2 <- ggplot(data = us_states_data,
+             mapping = aes(x = long, y = lat, group = group, fill = Women)) + geom_polygon(color = "gray90", size = 0.1) +
+coord_map(projection = "albers", lat0 = 39, lat1 = 45) + 
+scale_fill_gradient(low = "white", high = "#FF0000") +
+theme_map() 
+
+p3 <- ggplot(data = us_states_data,
+             mapping = aes(x = long, y = lat, group = group, fill = Citizen)) + geom_polygon(color = "gray90", size = 0.1) +
+coord_map(projection = "albers", lat0 = 39, lat1 = 45) + 
+scale_fill_gradient(low = "white", high = "#FF0000") +
+theme_map()
+
+p4 <- ggplot(data = us_states_data,
+             mapping = aes(x = long, y = lat, group = group, fill = Employed)) + geom_polygon(color = "gray90", size = 0.1) +
+coord_map(projection = "albers", lat0 = 39, lat1 = 45) + 
+scale_fill_gradient(low = "white", high = "#FF0000") +
+theme_map()
+
+p5 <- ggplot(data = us_states_data,
+             mapping = aes(x = long, y = lat, group = group, fill = Unemployment)) + geom_polygon(color = "gray90", size = 0.1) +
+coord_map(projection = "albers", lat0 = 39, lat1 = 45) + 
+scale_fill_gradient(low = "white", high = "#FF0000") +
+theme_map()
+
+p6 <- ggplot(data = us_states_data,
+             mapping = aes(x = long, y = lat, group = group, fill = ChildPov)) + geom_polygon(color = "gray90", size = 0.1) +
+coord_map(projection = "albers", lat0 = 39, lat1 = 45) + 
+scale_fill_gradient(low = "white", high = "#FF0000") +
+theme_map()
+grid.arrange(p1, p2, p3, p4, p5, p6, nrow = 2)
+```
+
+```{r,echo=FALSE}
+p1 <- ggplot(data = us_states_data,
+             mapping = aes(x = long, y = lat, group = group, fill = IncomePerCap)) + geom_polygon(color = "gray90", size = 0.1) +
+coord_map(projection = "albers", lat0 = 39, lat1 = 45) + 
+scale_fill_gradient(low = "white", high = "#FF0000") +
+theme_map() 
+
+p2 <- ggplot(data = us_states_data,
+             mapping = aes(x = long, y = lat, group = group, fill = Pov)) + geom_polygon(color = "gray90", size = 0.1) +
+coord_map(projection = "albers", lat0 = 39, lat1 = 45) + 
+scale_fill_gradient(low = "white", high = "#FF0000") +
+theme_map() 
+
+grid.arrange(p1, p2, nrow = 2)
+```
+
+```{r,echo=FALSE}
+p1 <- ggplot(data = us_states_data,
+             mapping = aes(x = long, y = lat, group = group, fill = Hispanic)) + geom_polygon(color = "gray90", size = 0.1) +
+coord_map(projection = "albers", lat0 = 39, lat1 = 45) + 
+scale_fill_gradient(low = "white", high = "#FF0000") +
+theme_map() 
+
+p2 <- ggplot(data = us_states_data,
+             mapping = aes(x = long, y = lat, group = group, fill = White)) + geom_polygon(color = "gray90", size = 0.1) +
+coord_map(projection = "albers", lat0 = 39, lat1 = 45) + 
+scale_fill_gradient(low = "white", high = "#FF0000") +
+theme_map() 
+
+p3 <- ggplot(data = us_states_data,
+             mapping = aes(x = long, y = lat, group = group, fill = Black)) + geom_polygon(color = "gray90", size = 0.1) +
+coord_map(projection = "albers", lat0 = 39, lat1 = 45) + 
+scale_fill_gradient(low = "white", high = "#FF0000") +
+theme_map() 
+
+p4 <- ggplot(data = us_states_data,
+             mapping = aes(x = long, y = lat, group = group, fill = Native)) + geom_polygon(color = "gray90", size = 0.1) +
+coord_map(projection = "albers", lat0 = 39, lat1 = 45) + 
+scale_fill_gradient(low = "white", high = "#FF0000") +
+theme_map() 
+
+p5 <- ggplot(data = us_states_data,
+             mapping = aes(x = long, y = lat, group = group, fill = Asian)) + geom_polygon(color = "gray90", size = 0.1) +
+coord_map(projection = "albers", lat0 = 39, lat1 = 45) + 
+scale_fill_gradient(low = "white", high = "#FF0000") +
+theme_map() 
+
+p6 <- ggplot(data = us_states_data,
+             mapping = aes(x = long, y = lat, group = group, fill = Pacific)) + geom_polygon(color = "gray90", size = 0.1) +
+coord_map(projection = "albers", lat0 = 39, lat1 = 45) + 
+scale_fill_gradient(low = "white", high = "#FF0000") +
+theme_map()
+grid.arrange(p1, p2, p3, p4, p5, p6,nrow = 2)
+```
+
+```{r,echo=FALSE}
+p1 <- ggplot(data = us_states_data,
+             mapping = aes(x = long, y = lat, group = group, fill = Professional)) + geom_polygon(color = "gray90", size = 0.1) +
+coord_map(projection = "albers", lat0 = 39, lat1 = 45) + 
+scale_fill_gradient(low = "white", high = "#FF0000") +
+theme_map() 
+
+p2 <- ggplot(data = us_states_data,
+             mapping = aes(x = long, y = lat, group = group, fill = Service)) + geom_polygon(color = "gray90", size = 0.1) +
+coord_map(projection = "albers", lat0 = 39, lat1 = 45) + 
+scale_fill_gradient(low = "white", high = "#FF0000") +
+theme_map() 
+
+p3 <- ggplot(data = us_states_data,
+             mapping = aes(x = long, y = lat, group = group, fill = Office)) + geom_polygon(color = "gray90", size = 0.1) +
+coord_map(projection = "albers", lat0 = 39, lat1 = 45) + 
+scale_fill_gradient(low = "white", high = "#FF0000") +
+theme_map() 
+
+p4 <- ggplot(data = us_states_data,
+             mapping = aes(x = long, y = lat, group = group, fill = Construction)) + geom_polygon(color = "gray90", size = 0.1) +
+coord_map(projection = "albers", lat0 = 39, lat1 = 45) + 
+scale_fill_gradient(low = "white", high = "#FF0000") +
+theme_map() 
+
+p5 <- ggplot(data = us_states_data,
+             mapping = aes(x = long, y = lat, group = group, fill = Production)) + geom_polygon(color = "gray90", size = 0.1) +
+coord_map(projection = "albers", lat0 = 39, lat1 = 45) + 
+scale_fill_gradient(low = "white", high = "#FF0000") +
+theme_map() 
+
+p6 <- ggplot(data = us_states_data,
+             mapping = aes(x = long, y = lat, group = group, fill = Drive)) + geom_polygon(color = "gray90", size = 0.1) +
+coord_map(projection = "albers", lat0 = 39, lat1 = 45) + 
+scale_fill_gradient(low = "white", high = "#FF0000") +
+theme_map()
+grid.arrange(p1, p2, p3, p4, p5, p6,nrow = 2)
+```
+
+```{r,echo=FALSE}
+p1 <- ggplot(data = us_states_data,
+             mapping = aes(x = long, y = lat, group = group, fill = Carpool)) + geom_polygon(color = "gray90", size = 0.1) +
+coord_map(projection = "albers", lat0 = 39, lat1 = 45) + 
+scale_fill_gradient(low = "white", high = "#FF0000") +
+theme_map() 
+
+p2 <- ggplot(data = us_states_data,
+             mapping = aes(x = long, y = lat, group = group, fill = WFH)) + geom_polygon(color = "gray90", size = 0.1) +
+coord_map(projection = "albers", lat0 = 39, lat1 = 45) + 
+scale_fill_gradient(low = "white", high = "#FF0000") +
+theme_map() 
+
+p3 <- ggplot(data = us_states_data,
+             mapping = aes(x = long, y = lat, group = group, fill = AVG_Commute)) + geom_polygon(color = "gray90", size = 0.1) +
+coord_map(projection = "albers", lat0 = 39, lat1 = 45) + 
+scale_fill_gradient(low = "white", high = "#FF0000") +
+theme_map() 
+
+p4 <- ggplot(data = us_states_data,
+             mapping = aes(x = long, y = lat, group = group, fill = Private_work)) + geom_polygon(color = "gray90", size = 0.1) +
+coord_map(projection = "albers", lat0 = 39, lat1 = 45) + 
+scale_fill_gradient(low = "white", high = "#FF0000") +
+theme_map() 
+
+p5 <- ggplot(data = us_states_data,
+             mapping = aes(x = long, y = lat, group = group, fill = Public_work)) + geom_polygon(color = "gray90", size = 0.1) +
+coord_map(projection = "albers", lat0 = 39, lat1 = 45) + 
+scale_fill_gradient(low = "white", high = "#FF0000") +
+theme_map() 
+
+p6 <- ggplot(data = us_states_data,
+             mapping = aes(x = long, y = lat, group = group, fill = SelfEmployed)) + geom_polygon(color = "gray90", size = 0.1) +
+coord_map(projection = "albers", lat0 = 39, lat1 = 45) + 
+scale_fill_gradient(low = "white", high = "#FF0000") +
+theme_map()
+grid.arrange(p1, p2, p3, p4, p5, p6,nrow = 2)
+detach(aggregated_data)
+```
+
+
+## Police Killings dataset
+```{r}
+killings = read.csv('police_killings_cleaned.csv', header = TRUE)
+```
+
+### Covert type
+```{r}
+killings$gender = factor(killings$gender)
+killings$raceethnicity = factor(killings$raceethnicity)
+killings$day = factor(killings$day)
+killings$city = factor(killings$city)
+killings$cause = factor(killings$cause)
+killings$armed = factor(killings$armed)
+killings$county_bucket = factor(killings$county_bucket)
+killings$nat_bucket = factor(killings$nat_bucket)
+
+as.numeric.factor <- function(x) {as.numeric(levels(x))[x]}
+killings$pov = as.numeric.factor(killings$pov)
+killings$p_income = as.numeric.factor(killings$p_income)
+killings$share_black = as.numeric.factor(killings$share_black)
+killings$share_white = as.numeric.factor(killings$share_white)
+killings$share_hispanic = as.numeric.factor(killings$share_hispanic)
+```
+### Missing values
+
+There are 34 observations with missing variables
+```{r,echo=FALSE}
+missingdata= killings[!complete.cases(killings),]
+```
+
+```{r}
+killings_aggr = aggr(killings,col=mdc(1:2), numbers=TRUE, sortVars=TRUE, cex.axis=.7, gap=3, ylab=c("Proportion of missingness","Missingness Pattern"))
+```
+
+There is no missing in the state or county. In other words, missingness would not affect our state or county level analysis. I will do more EDA on individual level after state and county level modelling.
+
+```{r}
+attach(killings)
+
+state <- killings %>% dplyr::select(state)
+killing_subset <- data.frame(killings %>%  dplyr::select(raceethnicity),apply(state, 1, abbr2state))
+
+killing_counts <- killing_subset %>% 
+dplyr::group_by(apply.state..1..abbr2state.) %>%
+tally()
+
+killing_counts$apply.state..1..abbr2state. = tolower(killing_counts$apply.state..1..abbr2state.)
+detach(killings)
+```
+
+
+# Hypothesis Test
+## Idea I
+```{r}
+killing_subset_race = killing_subset
+
+levels(killing_subset_race$raceethnicity) = c("Non-Black","Black","Non-Black","Non-Black","Non-Black","Non-Black")
+
+names(killing_subset_race) = c("raceethnicity","state")
+```
+
+```{r}
+temp = killing_subset_race %>% dplyr::group_by(state,raceethnicity) %>% dplyr::summarise(no_race = length(raceethnicity)) 
+```
+
+```{r}
+temp_black = temp[temp$raceethnicity=="Black",]
+temp_nonblack = temp[temp$raceethnicity == "Non-Black",]
+temp_black$state = tolower(temp_black$state)
+temp_nonblack$state= tolower(temp_nonblack$state)
+names(temp_black) = c("state","race","no_black")
+names(temp_nonblack) = c("state","race","no_nonblack")
+```
+
+```{r}
+temp_nonblack
+```
+
+
+```{r}
+count_df = data.frame(aggregated_data[,c("State","Black")])
+merged = merge(count_df,killing_counts,by.x="State",by.y="apply.state..1..abbr2state.")
+merged = merge(merged,temp_black, by.x = "State", by.y = "state",all.x = TRUE)
+merged[is.na(merged$no_black),]$no_black = 0
+
+merged = merge(merged,temp_nonblack, by.x = "State", by.y = "state",all.x = TRUE)
+merged[is.na(merged$no_nonblack),]$no_nonblack = 0
+
+merged = merged[,c("State","Black","n","no_black","no_nonblack")]
+```
+
+```{r}
+merged
+```
+
+```{r}
+t.test(merged$no_black-merged$Black*merged$n,mu = 0,alternative = "greater")
+```
+```{r}
+hist(merged$no_black-merged$Black*merged$n,xlab = 'Nb - N*Pb',breaks = 6,main = "Histogram of state level data")
+```
+```{r}
+boxplot(merged$no_black-merged$Black*merged$n)
+```
+
+## Idea II (Remove)
+The idea is incorrect and has been removed.
+```{r}
+a = merged$no_black/merged$Black
+```
+
+```{r}
+b = merged$no_nonblack/(1-merged$Black)
+```
+
+```{r}
+sample_data = a-b
+```
+
+```{r}
+log(sample_data  - min(sample_data) + 1)
+```
+
+```{r}
+hist(log(sample_data  - min(sample_data) + 1),breaks = 5,main="Histogram of state level data",xlab="log(1+Nb/Pb - NNb/PNb - min(Nb/Pb - NNb/PNb))")
+```
+
+```{r}
+boxplot(log(sample_data  - min(sample_data) + 1))
+```
+
+
+```{r}
+t.test(log(sample_data  - min(sample_data) + 1),mu = log(1-min(sample_data)),alternative = "greater")
+```
+
+
+# Model Building
+## State level
+### Merge the two datasets
+```{r}
+joined_data = merge(aggregated_data,killing_counts, by.x = 'State', by.y='apply.state..1..abbr2state.',all.x = TRUE)
+```
+There are 5 states without killings in the killings dataset. 
+```{r}
+joined_data[is.na(joined_data$n),]
+```
+
+TODO: Please check my hypothesis is correct. May need reference here
+
+I will assume the killings number in these five states are 0
+
+```{r}
+joined_data[is.na(joined_data$n),]$n = 0
+```
+
+### Poisson Regression using State-Aggregated Census Data
+
+Start by fitting a model on all non-race-related variables.
+
+```{r}
+ggcorr(joined_data)
+```
+
+There are 52 observations and 27 variables in the dataset. I will apply PCA to reduce the number of variables. I will leave the black variable (all race variables) outside.
+
+```{r}
+names(joined_data)
+```
+
+```{r}
+withoutblack = joined_data %>% dplyr::select(-c("Black","White","Hispanic","Native","Asian","Pacific"))
+```
+
+```{r}
+pcaCharts <- function(x) {
+    x.var <- x$sdev ^ 2
+    x.pvar <- x.var/sum(x.var)
+    print("proportions of variance:")
+    print(x.pvar)
+    print("cul")
+    print(cumsum(x.pvar))
+    
+    par(mfrow=c(2,2))
+    plot(x.pvar,xlab="Principal component", ylab="Proportion of variance explained", ylim=c(0,1), type='b')
+    plot(cumsum(x.pvar),xlab="Principal component", ylab="Cumulative Proportion of variance", ylim=c(0,1), type='b')
+    screeplot(x)
+    screeplot(x,type="l")
+    par(mfrow=c(1,1))
+}
+```
+
+```{r}
+names(withoutblack)
+```
+
+
+```{r}
+pca.state = prcomp(withoutblack[,2:22], scale. = TRUE)
+pcaCharts(pca.state)
+```
+
+12 variables are enough.
+
+```{r}
+pca.12 = data.frame(pca.state$x[,1:12])
+```
+
+```{r}
+pca.join.withB = cbind(joined_data%>%dplyr::select(c("State","n","Black")),pca.12)
+head(pca.join.withB)
+pca.join.withoutB = cbind(joined_data%>%dplyr::select(c("State","n")),pca.12)
+head(pca.join.withoutB)
+```
+
+PCA results are othogonormal. No need to check coorrelation.
+```{r}
+names(pca.join.withoutB)
+```
+
+```{r}
+## Generate two extreme models 
+model_null = glm(n~1, data=pca.join.withoutB[,2:14], family="poisson")
+model_full = glm(n ~., family="poisson", data=pca.join.withoutB[,2:14])
+
+## Perform the forward and backward stepwise selection 
+forward_glm = step(model_null, scope=list(lower=model_null, 
+                   upper=model_full),direction="forward",trace = 0)
+
+backward_glm = step(model_full, scope=list(lower=model_null, 
+                   upper=model_full),direction="backward",trace = 0)
+```
+
+
+Use forward and backwards stepwise regression to create our model, while still ignoring racial variables
+
+```{r}
+print("the formula using forward stepwise:")
+print(formula(forward_glm))
+print("the formula using backward stepwise:")
+print(formula(backward_glm))
+```
+Both forward and backward get the same formulal result.
+
+Now add in our "Black" indicator to assess if there is added predictability.
+
+```{r}
+summary(backward_glm)
+```
+
+```{r}
+ggcorr(pca.join.withB[,2:15])
+```
+
+```{r}
+m1 = glm(n ~ PC1 + PC2 + PC3 + PC4 + PC6 + PC8 + PC11 + PC12 + Black, family="poisson", data=pca.join.withB)
+summary(m1)
+```
+
+```{r}
+plot(m1)
+```
+
+Black is significant.
+
+## County level
+### Logistic Regression using County-Aggregated Census Data
+
+```{r,echo=FALSE}
+attach(census)
+
+killing_counts_county <- killings %>% 
+dplyr::group_by(geo_id) %>%
+tally()
+
+joined_data_county = merge(census,killing_counts_county, by.x = 'CensusTract', by.y='geo_id', all.x = TRUE)
+
+summed_census_county <- joined_data_county %>%
+dplyr::group_by(County) %>%
+dplyr::summarise(sum(TotalPop), sum(Men), sum(Women), sum(Citizen),
+          sum(Employed), sum(Hispanic_pop), sum(White_pop), sum(Black_pop), sum(Native_pop), sum(Asian_pop),
+          sum(Pacific_pop), sum(Tot_Income), sum(ChildPoverty_pop), sum(Poverty_pop), sum(Professional_pop), sum(Service_pop), sum(Office_pop),
+          sum(Construction_pop), sum(Production_pop), sum(Drive_pop), sum(Carpool_pop), sum(WFH_pop), sum(TotalCommute),
+          sum(PrivateWork_pop), sum(PublicWork_pop), sum(SelfEmployed_pop), sum(Unemployment_pop),sum(n,na.rm = TRUE))
+
+detach(census)
+```
+
+```{r}
+attach(summed_census_county)
+
+aggregated_data_county <- data.frame(County) %>% group_by(County)
+aggregated_data_county$TotalPop <- summed_census_county$"sum(TotalPop)"
+aggregated_data_county$Men <- summed_census_county$"sum(Men)" / summed_census_county$"sum(TotalPop)"
+aggregated_data_county$Women <- summed_census_county$"sum(Women)" / summed_census_county$"sum(TotalPop)"
+aggregated_data_county$Citizen <- summed_census_county$"sum(Citizen)" / summed_census_county$"sum(TotalPop)"
+aggregated_data_county$Employed <- summed_census_county$"sum(Employed)" / summed_census_county$"sum(TotalPop)"
+aggregated_data_county$IncomePerCap <- summed_census_county$"sum(Tot_Income)" / summed_census_county$"sum(TotalPop)"
+aggregated_data_county$Pov <- summed_census_county$"sum(Poverty_pop)" / summed_census_county$"sum(TotalPop)"
+aggregated_data_county$Hispanic <- summed_census_county$"sum(Hispanic_pop)" / summed_census_county$"sum(TotalPop)"
+aggregated_data_county$White <- summed_census_county$"sum(White_pop)" / summed_census_county$"sum(TotalPop)"
+aggregated_data_county$Black <- summed_census_county$"sum(Black_pop)" / summed_census_county$"sum(TotalPop)"
+aggregated_data_county$Native <- summed_census_county$"sum(Native_pop)" / summed_census_county$"sum(TotalPop)"
+aggregated_data_county$Asian <- summed_census_county$"sum(Asian_pop)" / summed_census_county$"sum(TotalPop)"
+aggregated_data_county$Pacific <- summed_census_county$"sum(Pacific_pop)" / summed_census_county$"sum(TotalPop)"
+aggregated_data_county$ChildPov <- summed_census_county$"sum(ChildPoverty_pop)" / summed_census_county$"sum(TotalPop)"
+aggregated_data_county$Professional <- summed_census_county$"sum(Professional_pop)" / summed_census_county$"sum(TotalPop)"
+aggregated_data_county$Service <- summed_census_county$"sum(Service_pop)" / summed_census_county$"sum(TotalPop)"
+aggregated_data_county$Office <- summed_census_county$"sum(Office_pop)" / summed_census_county$"sum(TotalPop)"
+aggregated_data_county$Construction <- summed_census_county$"sum(Construction_pop)" / summed_census_county$"sum(TotalPop)"
+aggregated_data_county$Production <- summed_census_county$"sum(Production_pop)" / summed_census_county$"sum(TotalPop)"
+aggregated_data_county$Drive <- summed_census_county$"sum(Drive_pop)" / summed_census_county$"sum(TotalPop)"
+aggregated_data_county$Carpool <- summed_census_county$"sum(Carpool_pop)" / summed_census_county$"sum(TotalPop)"
+aggregated_data_county$WFH <- summed_census_county$"sum(WFH_pop)" / summed_census_county$"sum(TotalPop)"
+aggregated_data_county$AVG_Commute <- summed_census_county$"sum(TotalCommute)" / summed_census_county$"sum(TotalPop)"
+aggregated_data_county$Private_work <- summed_census_county$"sum(PrivateWork_pop)" / summed_census_county$"sum(TotalPop)"
+aggregated_data_county$Public_work <- summed_census_county$"sum(PublicWork_pop)" / summed_census_county$"sum(TotalPop)"
+aggregated_data_county$SelfEmployed <- summed_census_county$"sum(SelfEmployed_pop)" / summed_census_county$"sum(TotalPop)"
+aggregated_data_county$Unemployment <- summed_census_county$"sum(Unemployment_pop)" / summed_census_county$"sum(TotalPop)"
+aggregated_data_county$Kill_count <- summed_census_county$"sum(n, na.rm = TRUE)"
+
+aggregated_data_county <- aggregated_data_county %>% ungroup(County)
+
+aggregated_data_county$TotalPop <- (aggregated_data_county$TotalPop - min(aggregated_data_county$TotalPop))/ (max(aggregated_data_county$TotalPop)-min(aggregated_data_county$TotalPop))
+
+detach(summed_census_county)
+```
+
+```{r}
+kill_ind <- function(x){
+    if (x > 0){
+        kill <- 1
+    } else {
+        kill <- 0
+    }
+    kill
+}
+aggregated_data_county_logistic = aggregated_data_county
+
+aggregated_data_county_logistic$Kill_count <- sapply(aggregated_data_county$Kill_count, kill_ind)
+```
+As there are 1928 observations, I would not use PCA
+
+```{r}
+head(aggregated_data_county_logistic)
+```
+
+```{r}
+names(aggregated_data_county_logistic)
+```
+
+I need to remove race variabels and one of each highly correlated variable pairs. e.g. men women by common sense
+
+```{r}
+ggcorr(aggregated_data_county_logistic)
+```
+Remove: Men, Employed, ChildPov, Private_work
+```{r}
+county.withB = aggregated_data_county_logistic %>% dplyr::select(-c("White","Hispanic","Native","Asian","Pacific","Men","Employed","ChildPov","Private_work"))
+county.withoutB = aggregated_data_county_logistic %>% dplyr::select(-c("Black","White","Hispanic","Native","Asian","Pacific","Men","Employed","ChildPov","Private_work"))
+```
+
+Start by fitting a model on all non-race-related variables.
+```{r}
+names(county.withoutB)
+```
+
+```{r}
+ggcorr(county.withoutB)
+```
+```{r}
+#attach(county.withoutB)
+#cor(Private_work,Public_work)
+#detach(county.withoutB)
+```
+
+```{r}
+names(county.withoutB)
+```
+```{r}
+#summary(glm(Kill_count~., data=county.withoutB[,2:10], family="binomial"))
+```
+
+```{r}
+## Generate two extreme models 
+model_null = glm(Kill_count~1, data=county.withoutB[,2:19], family="binomial")
+model_full = glm(Kill_count ~., family="binomial", data=county.withoutB[,2:19])
+
+## Perform the forward and backward stepwise selection 
+forward_glm = step(model_null, scope=list(lower=model_null, 
+                   upper=model_full),direction="forward",trace = 0)
+
+backward_glm = step(model_full, scope=list(lower=model_null, 
+                   upper=model_full),direction="backward",trace = 0)
+```
+
+
+Use forward and backwards stepwise regression to create our model, while still ignoring racial variables
+
+```{r}
+print("the formula using forward stepwise:")
+print(formula(forward_glm))
+print("the formula using backward stepwise:")
+print(formula(backward_glm))
+```
+
+Now add in our "Black" indicator to assess if there is added predictability.
+
+```{r}
+summary(forward_glm)
+summary(backward_glm)
+```
+
+```{r}
+ggcorr(county.withB[, 2:20])
+```
+
+```{r}
+m22 = glm(Kill_count ~ TotalPop + SelfEmployed + Production + Citizen + 
+    Drive + Carpool, family="binomial", data=county.withB)
+```
+
+```{r}
+m2 = glm(Kill_count ~ TotalPop + SelfEmployed + Production + Citizen + 
+    Drive + Carpool + Black, family="binomial", data=county.withB)
+summary(m2)
+```
+
+```{r}
+t.test(m2$residuals)
+```
+
+```{r}
+length(m22$residuals)
+```
+
+```{r}
+t.test(m22$residuals)
+```
+
+```{r}
+hist(m22$residuals)
+```
+
+
+```{r}
+summary(glm(Kill_count ~ TotalPop + Citizen + Pov + Professional + Service + 
+    Office + Drive + Carpool + SelfEmployed + Black, family="binomial", data=county.withB))
+```
+Black is non-significant.
+
+
+### Zero-Inflated Poisson Regression
+
+```{r}
+ggplot(aggregated_data_county[aggregated_data_county$Kill_count>0,], aes(x=factor(Kill_count)))+
+  geom_bar(stat="count", width=0.7, fill="steelblue")+
+  theme_minimal()
+```
+The distribution plot shows the zero-inflated is valid in our dataset.
+
+Reference: https://stats.idre.ucla.edu/r/dae/zip/
+```{r}
+library(pscl)
+library(boot)
+```
+
+```{r}
+zero_county.withoutB = county.withoutB %>% dplyr::select(-c("County","IncomePerCap"))
+zero_county.withB = county.withB %>% dplyr::select(-c("County","IncomePerCap"))
+```
+
+```{r}
+names(zero_county.withoutB)
+```
+
+```{r}
+m1 <- zeroinfl(Kill_count ~ TotalPop + Professional + Service + Office + Drive + Carpool | Women + Citizen + Pov + SelfEmployed, data = zero_county.withoutB)
+```
+
+```{r}
+summary(m1)
+```
+
+```{r}
+m2 <- zeroinfl(Kill_count ~ TotalPop + Professional + Service + Office + Drive + Carpool | Citizen + Pov + SelfEmployed, data = zero_county.withoutB)
+```
+
+```{r}
+summary(m2)
+```
+```{r}
+m3 <- zeroinfl(Kill_count ~ TotalPop + Professional + Service + Office + Carpool | Citizen + Pov + SelfEmployed, data = zero_county.withoutB)
+```
+
+```{r}
+summary(m3)
+```
+
+```{r}
+m4 <- zeroinfl(Kill_count ~ TotalPop + Professional + Service + Office | Citizen + Pov + SelfEmployed, data = zero_county.withoutB)
+```
+
+```{r}
+summary(m4)
+```
+
+```{r}
+m5 <- zeroinfl(Kill_count ~ TotalPop + Professional + Service + Office + Black| Citizen + Pov + SelfEmployed, data = zero_county.withB)
+```
+
+```{r}
+summary(m5)
+```
+
+```{r}
+m6 <- zeroinfl(Kill_count ~ TotalPop + Professional + Service + Office | Citizen + Pov + SelfEmployed + Black, data = zero_county.withB)
+```
+
+```{r}
+summary(m6)
+```
+
+
+```{r}
+t.test(m5$residuals)
+```
+
+## Individual Level
+### Distribution Plot
+```{r,echo=FALSE}
+mu1 <- ddply(.data=killings, "raceethnicity", summarise, grp.mean=mean(age))
+# Change density plot line colors by groups
+
+p1<-ggplot(data=killings, aes(x=age, color=raceethnicity)) +
+  geom_density()+
+  # Add mean lines
+  geom_vline(data=mu1, aes(xintercept=grp.mean, color=raceethnicity),
+             linetype="dashed")
+
+p2 = ggplot(data=killings,aes(raceethnicity)) +
+  geom_bar(aes(fill = gender)) +
+  scale_fill_brewer(palette="Paired")
+
+p3 = ggplot(data=killings,aes(raceethnicity)) +
+  geom_bar(aes(fill = cause)) +
+  scale_fill_brewer(palette="Paired")
+
+p4 = ggplot(data=killings,aes(raceethnicity)) +
+  geom_bar(aes(fill = armed)) +
+  scale_fill_brewer(palette="Paired")
+
+#grid.arrange(p1, p2, p3, p4, nrow = 4)
+```
+
+```{r,echo=FALSE}
+p1
+p2
+p3
+p4
+```
+
+```{r}
+levels(killings$armed) = c("Other armed","Firearm","Other armed","No","Other armed","Other armed","Other armed","Other armed")
+levels(killings$raceethnicity) = c("Other","Black","Other","Other","Other","White")
+levels(killings$cause) = c("Other cause","Gunshot","Other cause","Other cause","Other cause")
+```
+
+```{r,echo=FALSE}
+mu1 <- ddply(.data=killings, "raceethnicity", summarise, grp.mean=mean(age))
+# Change density plot line colors by groups
+
+p1<-ggplot(data=killings, aes(x=age, color=raceethnicity)) +
+  geom_density()+
+  # Add mean lines
+  geom_vline(data=mu1, aes(xintercept=grp.mean, color=raceethnicity),
+             linetype="dashed")
+
+p2 = ggplot(data=killings,aes(raceethnicity)) +
+  geom_bar(aes(fill = gender)) +
+  scale_fill_brewer(palette="Paired")
+
+p3 = ggplot(data=killings,aes(raceethnicity)) +
+  geom_bar(aes(fill = cause)) +
+  scale_fill_brewer(palette="Paired")
+
+p4 = ggplot(data=killings,aes(raceethnicity)) +
+  geom_bar(aes(fill = armed)) +
+  scale_fill_brewer(palette="Paired")
+
+#grid.arrange(p1, p2, p3, p4, nrow = 4)
+```
+
+```{r,echo=FALSE}
+p1
+p2
+p3
+p4
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# Model Interpretation
+
+# Conclusion
